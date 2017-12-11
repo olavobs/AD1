@@ -1,0 +1,72 @@
+---
+title: "Problema 3 - Checkpoint 3 AD1 UFCG"
+author: "Diogo Florêncio"
+output: 
+    html_notebook:
+    toc: TRUE  
+---
+
+```{r}
+library(tidyverse) 
+library(broom) 
+library(ggfortify, quietly = TRUE) 
+require(GGally, quietly = TRUE)
+library(knitr, quietly = TRUE)
+library(cluster)
+
+theme_set(theme_bw())
+```
+Os dados escolhidos para este laboratório são referentes as unidades acadêmicas da UFCG. Analisando os dados de modo geral, observei a existência de algumas unidades acadêmicas que possuem 1,2 ou 3 funcionários, valores estranhos. Deste modo, considerei apenas unidades acadêmicas que possuem mais de 10 funcionários.
+```{r}
+dados <- read.csv("../dados/ufcg-201704-sumario-UAs-wide.csv",encoding="UTF-8") %>%
+  group_by(unidade_academica = UORG_LOTACAO) %>% 
+  mutate(total_funcionarios = sum(Outro, Professor.20h, Professor.40h.ou.DE)) %>%
+  select(unidade_academica, total_funcionarios, Professor.40h.ou.DE, idade_mediana) %>%
+  filter(total_funcionarios > 10) %>%
+  ungroup()
+```
+As variáveis escolhidas para análise foram `total de funcionários`, `Professor.40h.ou.DE` e `idade_mediana`(50 percentil da idade dos funcionários); uma descrição mais detalhada sobre os dados está disponível [aqui](https://github.com/nazareno/tamanhos-da-ufcg). As escalas originais das variáveis apresentam uma diferença significativa em seus valores, deste modo foram normalizadas normalizadas com scale antes da redução de dimensionalidade, para que as variáveis apresentem efeito ficasse comparável.
+```{r}
+dados.scaled = dados %>% 
+    mutate_at(2:4, funs(log)) %>% 
+    mutate_at(2:4, funs(as.vector(scale(.))))
+
+dados.scaled %>% 
+    select(-unidade_academica) %>% 
+    ggpairs()
+```
+É possível perceber há existência de grupos nos gráficos de dispersão, mas não conseguimos ver a relação de todas variáveis para um ponto de uma vez nessa visualização. Ao relacionar as variáveis por meio da redução de dimensionalidade, percebe-se a existência de 2 ou 3 grupos distintos. 
+```{r}
+pr.out <- prcomp(select(dados, -unidade_academica), scale = TRUE)
+
+autoplot(pr.out, data = dados, size = 3, colour = 'blue', loadings = FALSE)
+```
+## Interpretando os resultados
+Os vetores mostram a relação entre PC1, PC2 e as variáveis. O alinhamento entre os vetores `Professor.40h.ou.DE`, `total_funcionarios` e o eixo PC1 indica que as variáveis geratrizes destes vetores variam bastante para pontos que estão mais a esquerda ou a direita do gráfico. Ou seja, o eixo PC1 explica essas variáveis, quanto mais a esquerda o ponto estiver menor são seus valores para `Professor.40h.ou.DE` e `total_funcionarios`, quanto mais a direita maior serão esses valores. Da mesma forma, o alinhamento entre o vetor `idade_mediana` e o eixo PC2 evidencia o comportamento da variável geratriz do vetor ao longo do eixo, quanto mais acima o ponto estiver menor será o valor da `idade_mediana` quanto mais abaixo maior o valor.  
+```{r}
+autoplot(pr.out, data = dados, size = 1, 
+         loadings = TRUE, loadings.colour = 'blue',
+         loadings.label = TRUE, 
+         loadings.label.size = 3)
+```
+Podemos definir com maior precisão a relação entre os PC's e as variáveis iniciais, já que os PC's são funções lineares das variáveis. Os valores na tabela são os coeficientes, deste modo: 
+         *PC1 = -0.25x`idade_mediana` + 0.69x`Professor.40h.ou.DE` + 0.67x`total_funcionarios`*
+         *PC2 = -0.96x`idade_mediana` - 0.11x`Professor.40h.ou.DE` - 0.25x`total_funcionarios`*
+A unidade considerada é em z-scores.
+```{r}
+tidy(pr.out, "variables") %>% 
+    filter(PC <= 2) %>% 
+    spread(column, value)
+```
+Outra evidência sobre a posição dos vetores está na forte correlação linear positiva entre as variáveis `Professor.40h.ou.DE` e `total_funcionarios`, como exibe o gráfico de dispersão. De certa maneira, isso significa que ambas têm informação parecida – sabendo o valor de uma para um ponto, sabemos algo sobre o valor da outra, e é possível substituir as duas por uma perdendo apenas um pouco de informação. Isto justifica PC1 explicar as variáveis `Professor.40h.ou.DE` e `total_funcionarios`. `idade_mediana` é menos correlacionada as de mais, dessa maneira PC2 explica praticamente apenas ela.
+
+## Representatividade
+O gráfico abaixo exibe a relação entre a variância acumulada nos PCs com a variância total existente nos dados originais. Com dois PC's mais de 90% da informação original dos dados é representada. Ou seja, nem 10% de toda informação foi perdida.
+```{r}
+tidy(pr.out, "pcs") %>% 
+    ggplot(aes(x = PC, y = cumulative)) + 
+    geom_line(color = "blue") + 
+    geom_point(color = "red") + 
+    labs(x = "PC's", 
+         y = "Percentual de Representatividade")
+```
